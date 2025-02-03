@@ -3,6 +3,7 @@ package gui;
 import javax.swing.*;
 import javax.swing.table.DefaultTableModel;
 import javax.swing.table.TableColumnModel;
+import javax.swing.plaf.FontUIResource;
 import java.awt.*;
 import javax.swing.event.ListSelectionListener;
 import java.awt.event.*;
@@ -26,12 +27,35 @@ public class IRCTCMainFrame extends JFrame {
     private JPanel cardPanel;
     private CardLayout cardLayout;
     private JTable bookingHistoryTable;
+    private static final Color PRIMARY_COLOR = new Color(25, 118, 210); // Material Blue
+    private static final Color SECONDARY_COLOR = new Color(245, 245, 245); // Light Gray
+    private static final Font TITLE_FONT = new Font("Segoe UI", Font.BOLD, 28);
+    private static final Font HEADER_FONT = new Font("Segoe UI", Font.BOLD, 20);
+    private static final Font NORMAL_FONT = new Font("Segoe UI", Font.PLAIN, 14);
+
+    static {
+        // Set up button UI
+        UIManager.put("Button.select", PRIMARY_COLOR.darker());
+        UIManager.put("Button.focus", new Color(0, 0, 0, 0));
+    }
 
     public IRCTCMainFrame() {
-        super("IRCTC Ticket Booking System");
+        super("IRCTC Railway Reservation System");
         bookingHistory = new ArrayList<>();
+        setUIFont(new FontUIResource("Segoe UI", Font.PLAIN, 14));
         initializeServices();
         setupGUI();
+    }
+
+    private void setUIFont(FontUIResource font) {
+        java.util.Enumeration keys = UIManager.getDefaults().keys();
+        while (keys.hasMoreElements()) {
+            Object key = keys.nextElement();
+            Object value = UIManager.get(key);
+            if (value instanceof FontUIResource) {
+                UIManager.put(key, font);
+            }
+        }
     }
 
     private void initializeServices() {
@@ -48,145 +72,194 @@ public class IRCTCMainFrame extends JFrame {
 
     private void setupGUI() {
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
-        setSize(800, 500);
+        setSize(1000, 600);
         setLocationRelativeTo(null);
+        setBackground(SECONDARY_COLOR);
 
-        // Create menu bar
-        JMenuBar menuBar = new JMenuBar();
-        JMenu menu = new JMenu("Menu");
-        
-        JMenuItem bookingItem = new JMenuItem("Book Tickets");
-        JMenuItem historyItem = new JMenuItem("Booking History");
-        
-        bookingItem.addActionListener(e -> showCard("booking"));
-        historyItem.addActionListener(e -> {
-            updateBookingHistoryPanel();
-            showCard("history");
-        });
-        
-        menu.add(bookingItem);
-        menu.add(historyItem);
-        menuBar.add(menu);
+        // Create menu bar with modern look
+        JMenuBar menuBar = createModernMenuBar();
         setJMenuBar(menuBar);
 
         // Create card layout
         cardLayout = new CardLayout();
         cardPanel = new JPanel(cardLayout);
+        cardPanel.setBackground(SECONDARY_COLOR);
 
-        // Add booking panel
+        // Add panels
         cardPanel.add(createBookingPanel(), "booking");
-        
-        // Add history panel
         cardPanel.add(createBookingHistoryPanel(), "history");
 
         add(cardPanel);
         cardLayout.show(cardPanel, "booking");
     }
 
+    private JMenuBar createModernMenuBar() {
+        JMenuBar menuBar = new JMenuBar();
+        menuBar.setBackground(PRIMARY_COLOR);
+        
+        JMenu menu = new JMenu("Navigation");
+        menu.setForeground(Color.WHITE);
+        
+        JMenuItem bookingItem = createMenuItem("Book Tickets", "booking");
+        JMenuItem historyItem = createMenuItem("Booking History", "history");
+        
+        menu.add(bookingItem);
+        menu.add(historyItem);
+        menuBar.add(menu);
+        return menuBar;
+    }
+
+    private JMenuItem createMenuItem(String text, String cardName) {
+        JMenuItem item = new JMenuItem(text);
+        item.setFont(NORMAL_FONT);
+        item.addActionListener(e -> {
+            if (cardName.equals("history")) {
+                updateBookingHistoryPanel();
+            }
+            showCard(cardName);
+        });
+        return item;
+    }
+
     private JPanel createBookingPanel() {
-        JPanel panel = new JPanel(new GridLayout(4, 1, 10, 10));
-        panel.setBorder(BorderFactory.createEmptyBorder(20, 20, 20, 20));
+        JPanel mainPanel = new JPanel(new BorderLayout(20, 20));
+        mainPanel.setBackground(SECONDARY_COLOR);
+        mainPanel.setBorder(BorderFactory.createEmptyBorder(30, 40, 30, 40));
 
-        // Title
-        JLabel titleLabel = new JLabel("IRCTC Booking System", SwingConstants.CENTER);
-        titleLabel.setFont(new Font("Arial", Font.BOLD, 24));
-
-        // Available Seats
+        // Header Panel
+        JPanel headerPanel = new JPanel(new BorderLayout(10, 10));
+        headerPanel.setOpaque(false);
+        
+        JLabel titleLabel = new JLabel("Railway Ticket Reservation", SwingConstants.CENTER);
+        titleLabel.setFont(TITLE_FONT);
+        titleLabel.setForeground(PRIMARY_COLOR);
+        
         try {
             availableSeatsLabel = new JLabel("Available Seats: " + 
                 reservationService.getAvailableSeats(), SwingConstants.CENTER);
         } catch (RemoteException e) {
             availableSeatsLabel = new JLabel("Error fetching seats", SwingConstants.CENTER);
         }
-        availableSeatsLabel.setFont(new Font("Arial", Font.PLAIN, 18));
+        availableSeatsLabel.setFont(HEADER_FONT);
+        availableSeatsLabel.setForeground(PRIMARY_COLOR);
 
-        // Booking Panel
-        JPanel bookingInputPanel = new JPanel(new FlowLayout());
-        bookingInputPanel.add(new JLabel("Number of Tickets:"));
-        numTicketsField = new JTextField(5);
-        bookingInputPanel.add(numTicketsField);
+        headerPanel.add(titleLabel, BorderLayout.NORTH);
+        headerPanel.add(availableSeatsLabel, BorderLayout.CENTER);
 
-        // Book Button
-        JButton bookButton = new JButton("Book Tickets");
+        // Booking Form Panel
+        JPanel formPanel = new JPanel(new GridBagLayout());
+        formPanel.setOpaque(false);
+        GridBagConstraints gbc = new GridBagConstraints();
+        gbc.insets = new Insets(10, 10, 10, 10);
+
+        JLabel ticketsLabel = new JLabel("Number of Tickets:");
+        ticketsLabel.setFont(NORMAL_FONT);
+        numTicketsField = new JTextField(10);
+        numTicketsField.setFont(NORMAL_FONT);
+        
+        JButton bookButton = createStyledButton("Book Tickets");
         bookButton.addActionListener(e -> bookTickets());
 
-        // Add components
-        panel.add(titleLabel);
-        panel.add(availableSeatsLabel);
-        panel.add(bookingInputPanel);
-        panel.add(bookButton);
+        gbc.gridx = 0; gbc.gridy = 0;
+        formPanel.add(ticketsLabel, gbc);
+        gbc.gridx = 1;
+        formPanel.add(numTicketsField, gbc);
+        gbc.gridx = 0; gbc.gridy = 1;
+        gbc.gridwidth = 2;
+        formPanel.add(bookButton, gbc);
 
-        return panel;
+        mainPanel.add(headerPanel, BorderLayout.NORTH);
+        mainPanel.add(formPanel, BorderLayout.CENTER);
+
+        return mainPanel;
     }
 
     private JPanel createBookingHistoryPanel() {
-        JPanel mainPanel = new JPanel(new BorderLayout(10, 10));
-        mainPanel.setBorder(BorderFactory.createEmptyBorder(20, 20, 20, 20));
+        JPanel mainPanel = new JPanel(new BorderLayout(20, 20));
+        mainPanel.setBackground(SECONDARY_COLOR);
+        mainPanel.setBorder(BorderFactory.createEmptyBorder(30, 40, 30, 40));
 
-        // Title Panel
-        JPanel titlePanel = new JPanel(new FlowLayout(FlowLayout.CENTER));
+        // Header
         JLabel titleLabel = new JLabel("Booking History", SwingConstants.CENTER);
-        titleLabel.setFont(new Font("Arial", Font.BOLD, 24));
-        titlePanel.add(titleLabel);
-        mainPanel.add(titlePanel, BorderLayout.NORTH);
+        titleLabel.setFont(TITLE_FONT);
+        titleLabel.setForeground(PRIMARY_COLOR);
+        mainPanel.add(titleLabel, BorderLayout.NORTH);
 
-        // Table Panel
-        JPanel tablePanel = new JPanel(new BorderLayout());
+        // Table
         String[] columnNames = {"Booking ID", "Seats", "Amount", "Status"};
         DefaultTableModel model = new DefaultTableModel(columnNames, 0) {
             @Override
             public boolean isCellEditable(int row, int column) {
-                return false; // Make table non-editable
+                return false;
             }
         };
-        bookingHistoryTable = new JTable(model);
-        bookingHistoryTable.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
-        bookingHistoryTable.setRowHeight(25);
         
-        // Set column widths
-        TableColumnModel columnModel = bookingHistoryTable.getColumnModel();
-        columnModel.getColumn(0).setPreferredWidth(100); // Booking ID
-        columnModel.getColumn(1).setPreferredWidth(80);  // Seats
-        columnModel.getColumn(2).setPreferredWidth(100); // Amount
-        columnModel.getColumn(3).setPreferredWidth(100); // Status
-
+        bookingHistoryTable = new JTable(model);
+        setupTable(bookingHistoryTable);
+        
         JScrollPane scrollPane = new JScrollPane(bookingHistoryTable);
-        scrollPane.setPreferredSize(new Dimension(500, 300));
-        tablePanel.add(scrollPane, BorderLayout.CENTER);
-        mainPanel.add(tablePanel, BorderLayout.CENTER);
+        scrollPane.setBorder(BorderFactory.createEmptyBorder());
+        mainPanel.add(scrollPane, BorderLayout.CENTER);
 
         // Button Panel
-        JPanel buttonPanel = new JPanel();
-        buttonPanel.setBorder(BorderFactory.createEmptyBorder(10, 0, 0, 0));
-        JButton cancelButton = new JButton("Cancel Selected Booking");
-        cancelButton.setPreferredSize(new Dimension(200, 30));
-        cancelButton.setFont(new Font("Arial", Font.BOLD, 14));
-        cancelButton.addActionListener(e -> {
-            int selectedRow = bookingHistoryTable.getSelectedRow();
-            if (selectedRow != -1) {
-                IIRCTCService.BookingDetails booking = bookingHistory.get(selectedRow);
-                if (booking.status.equals("CONFIRMED")) {
-                    cancelBooking(booking);
-                } else {
-                    JOptionPane.showMessageDialog(this,
-                        "Only CONFIRMED bookings can be cancelled",
-                        "Cannot Cancel", JOptionPane.WARNING_MESSAGE);
-                }
-            } else {
-                JOptionPane.showMessageDialog(this,
-                    "Please select a booking to cancel",
-                    "No Selection", JOptionPane.WARNING_MESSAGE);
-            }
-        });
+        JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.CENTER, 20, 10));
+        buttonPanel.setOpaque(false);
+
+        JButton cancelButton = createStyledButton("Cancel Selected Booking");
+        cancelButton.addActionListener(e -> handleCancellation());
+
+        JButton refreshButton = createStyledButton("Refresh");
+        refreshButton.addActionListener(e -> updateBookingHistoryPanel());
+
         buttonPanel.add(cancelButton);
+        buttonPanel.add(refreshButton);
         mainPanel.add(buttonPanel, BorderLayout.SOUTH);
 
-        // Refresh button
-        JButton refreshButton = new JButton("Refresh");
-        refreshButton.addActionListener(e -> updateBookingHistoryPanel());
-        buttonPanel.add(refreshButton);
-
         return mainPanel;
+    }
+
+    private void setupTable(JTable table) {
+        table.setFont(NORMAL_FONT);
+        table.setRowHeight(30);
+        table.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+        table.getTableHeader().setFont(HEADER_FONT);
+        table.getTableHeader().setBackground(PRIMARY_COLOR);
+        table.getTableHeader().setForeground(Color.WHITE);
+        
+        // Set column widths
+        TableColumnModel columnModel = table.getColumnModel();
+        columnModel.getColumn(0).setPreferredWidth(100);
+        columnModel.getColumn(1).setPreferredWidth(80);
+        columnModel.getColumn(2).setPreferredWidth(100);
+        columnModel.getColumn(3).setPreferredWidth(100);
+    }
+
+    private JButton createStyledButton(String text) {
+        JButton button = new JButton(text);
+        button.setFont(NORMAL_FONT);
+        button.setBackground(PRIMARY_COLOR);
+        button.setForeground(Color.WHITE);
+        button.setFocusPainted(false);
+        button.setBorder(BorderFactory.createEmptyBorder(10, 20, 10, 20));
+        return button;
+    }
+
+    private void handleCancellation() {
+        int selectedRow = bookingHistoryTable.getSelectedRow();
+        if (selectedRow != -1) {
+            IIRCTCService.BookingDetails booking = bookingHistory.get(selectedRow);
+            if (booking.status.equals("CONFIRMED")) {
+                cancelBooking(booking);
+            } else {
+                showError("Only CONFIRMED bookings can be cancelled", "Cannot Cancel");
+            }
+        } else {
+            showError("Please select a booking to cancel", "No Selection");
+        }
+    }
+
+    private void showError(String message, String title) {
+        JOptionPane.showMessageDialog(this, message, title, JOptionPane.WARNING_MESSAGE);
     }
 
     private void updateBookingHistoryPanel() {
