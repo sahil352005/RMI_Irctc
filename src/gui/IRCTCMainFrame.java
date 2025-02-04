@@ -16,6 +16,8 @@ import java.rmi.RemoteException;
 import java.rmi.registry.LocateRegistry;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.HashMap;
 
 public class IRCTCMainFrame extends JFrame {
     private IBookingService bookingService;
@@ -59,14 +61,38 @@ public class IRCTCMainFrame extends JFrame {
     }
 
     private void initializeServices() {
-        try {
-            Registry registry = LocateRegistry.getRegistry("localhost", 1099);
-            bookingService = (IBookingService) registry.lookup("BookingService");
-            reservationService = (IReservationService) registry.lookup("ReservationService");
-            cancellationService = (ICancellationService) registry.lookup("CancellationService");
-        } catch (Exception e) {
-            JOptionPane.showMessageDialog(this, "Error connecting to services: " + e.getMessage());
-            System.exit(1);
+        int maxRetries = 5;
+        int retryDelay = 1000; // 1 second
+
+        for (int i = 0; i < maxRetries; i++) {
+            try {
+                Registry registry = LocateRegistry.getRegistry("localhost", 1099);
+                bookingService = (IBookingService) registry.lookup("BookingService");
+                reservationService = (IReservationService) registry.lookup("ReservationService");
+                cancellationService = (ICancellationService) registry.lookup("CancellationService");
+                
+                // Test the connection
+                int seats = reservationService.getAvailableSeats();
+                System.out.println("Successfully connected to services. Available seats: " + seats);
+                return;
+                
+            } catch (Exception e) {
+                System.err.println("Attempt " + (i + 1) + " to connect to services failed: " + e.getMessage());
+                if (i < maxRetries - 1) {
+                    try {
+                        Thread.sleep(retryDelay);
+                    } catch (InterruptedException ie) {
+                        Thread.currentThread().interrupt();
+                    }
+                } else {
+                    JOptionPane.showMessageDialog(this,
+                        "Failed to connect to services after " + maxRetries + " attempts.\n" +
+                        "Please make sure the server is running.",
+                        "Connection Error",
+                        JOptionPane.ERROR_MESSAGE);
+                    System.exit(1);
+                }
+            }
         }
     }
 
@@ -134,17 +160,22 @@ public class IRCTCMainFrame extends JFrame {
         titleLabel.setFont(TITLE_FONT);
         titleLabel.setForeground(PRIMARY_COLOR);
         
-        try {
-            availableSeatsLabel = new JLabel("Available Seats: " + 
-                reservationService.getAvailableSeats(), SwingConstants.CENTER);
-        } catch (RemoteException e) {
-            availableSeatsLabel = new JLabel("Error fetching seats", SwingConstants.CENTER);
-        }
+        availableSeatsLabel = new JLabel("Fetching available seats...", SwingConstants.CENTER);
         availableSeatsLabel.setFont(HEADER_FONT);
         availableSeatsLabel.setForeground(PRIMARY_COLOR);
 
+        // Create a refresh button for seats
+        JButton refreshSeatsButton = createStyledButton("↻");
+        refreshSeatsButton.setToolTipText("Refresh Available Seats");
+        refreshSeatsButton.addActionListener(e -> updateAvailableSeats());
+
+        JPanel seatsPanel = new JPanel(new FlowLayout(FlowLayout.CENTER));
+        seatsPanel.setOpaque(false);
+        seatsPanel.add(availableSeatsLabel);
+        seatsPanel.add(refreshSeatsButton);
+
         headerPanel.add(titleLabel, BorderLayout.NORTH);
-        headerPanel.add(availableSeatsLabel, BorderLayout.CENTER);
+        headerPanel.add(seatsPanel, BorderLayout.CENTER);
 
         // Booking Form Panel
         JPanel formPanel = new JPanel(new GridBagLayout());
@@ -171,6 +202,9 @@ public class IRCTCMainFrame extends JFrame {
         mainPanel.add(headerPanel, BorderLayout.NORTH);
         mainPanel.add(formPanel, BorderLayout.CENTER);
 
+        // Update seats initially
+        updateAvailableSeats();
+
         return mainPanel;
     }
 
@@ -186,7 +220,7 @@ public class IRCTCMainFrame extends JFrame {
         mainPanel.add(titleLabel, BorderLayout.NORTH);
 
         // Table
-        String[] columnNames = {"Booking ID", "Seats", "Amount", "Status"};
+        String[] columnNames = {"Booking ID", "Tickets (Current/Total)", "Amount", "Status"};
         DefaultTableModel model = new DefaultTableModel(columnNames, 0) {
             @Override
             public boolean isCellEditable(int row, int column) {
@@ -226,12 +260,15 @@ public class IRCTCMainFrame extends JFrame {
         table.getTableHeader().setBackground(PRIMARY_COLOR);
         table.getTableHeader().setForeground(Color.WHITE);
         
+        // Update column names
+        table.getColumnModel().getColumn(1).setHeaderValue("Tickets (Current/Total)");
+        
         // Set column widths
         TableColumnModel columnModel = table.getColumnModel();
-        columnModel.getColumn(0).setPreferredWidth(100);
-        columnModel.getColumn(1).setPreferredWidth(80);
-        columnModel.getColumn(2).setPreferredWidth(100);
-        columnModel.getColumn(3).setPreferredWidth(100);
+        columnModel.getColumn(0).setPreferredWidth(100);  // Booking ID
+        columnModel.getColumn(1).setPreferredWidth(150);  // Tickets
+        columnModel.getColumn(2).setPreferredWidth(100);  // Amount
+        columnModel.getColumn(3).setPreferredWidth(150);  // Status
     }
 
     private JButton createStyledButton(String text) {
@@ -248,10 +285,29 @@ public class IRCTCMainFrame extends JFrame {
         int selectedRow = bookingHistoryTable.getSelectedRow();
         if (selectedRow != -1) {
             IIRCTCService.BookingDetails booking = bookingHistory.get(selectedRow);
-            if (booking.status.equals("CONFIRMED")) {
-                cancelBooking(booking);
+            // Allow cancellation for both CONFIRMED and PARTIALLY CANCELLED tickets
+            if (booking.status.equals("CONFIRMED") || booking.status.equals("PARTIALLY CANCELLED")) {
+                String input = JOptionPane.showInputDialog(this,
+                    "Enter number of tickets to cancel (1-" + booking.numSeats + "):",
+                    "Cancel Tickets",
+                    JOptionPane.QUESTION_MESSAGE);
+                
+                if (input == null) {
+                    return; // User clicked Cancel
+                }
+                
+                try {
+                    int numTicketsToCancel = Integer.parseInt(input);
+                    if (numTicketsToCancel > 0 && numTicketsToCancel <= booking.numSeats) {
+                        cancelBooking(booking, numTicketsToCancel);
+                    } else {
+                        showError("Please enter a valid number between 1 and " + booking.numSeats, "Invalid Input");
+                    }
+                } catch (NumberFormatException e) {
+                    showError("Please enter a valid number", "Invalid Input");
+                }
             } else {
-                showError("Only CONFIRMED bookings can be cancelled", "Cannot Cancel");
+                showError("Only CONFIRMED or PARTIALLY CANCELLED bookings can be cancelled", "Cannot Cancel");
             }
         } else {
             showError("Please select a booking to cancel", "No Selection");
@@ -267,12 +323,20 @@ public class IRCTCMainFrame extends JFrame {
         model.setRowCount(0); // Clear existing rows
 
         for (IIRCTCService.BookingDetails booking : bookingHistory) {
+            String status = booking.status;
+            String ticketInfo = booking.numSeats + " / " + getOriginalTicketCount(booking);
+            String amount = "₹" + String.format("%.2f", booking.amount);
+
             model.addRow(new Object[]{
                 booking.bookingId,
-                booking.numSeats,
-                "₹" + booking.amount,
-                booking.status
+                ticketInfo,
+                amount,
+                status
             });
+            
+            System.out.println("Updating booking " + booking.bookingId + 
+                             ": Tickets=" + ticketInfo + 
+                             ", Status=" + status);
         }
         
         // Select first row if available
@@ -293,6 +357,7 @@ public class IRCTCMainFrame extends JFrame {
             }
             
             IIRCTCService.BookingDetails booking = bookingService.bookTicket(numTickets);
+            originalTicketCounts.put(booking.bookingId, numTickets); // Store original count
             bookingHistory.add(booking);
             
             if (booking.status.equals("CONFIRMED")) {
@@ -317,27 +382,76 @@ public class IRCTCMainFrame extends JFrame {
         }
     }
 
-    private void cancelBooking(IIRCTCService.BookingDetails booking) {
+    private void cancelBooking(IIRCTCService.BookingDetails booking, int numTicketsToCancel) {
         try {
-            System.out.println("Attempting to cancel booking: " + booking.bookingId);
-            boolean cancelled = cancellationService.cancelBooking(booking);
+            debugBooking(booking, "Before cancellation"); // Add debug information
+            System.out.println("Attempting to cancel " + numTicketsToCancel + " tickets from booking: " + booking.bookingId);
+            
+            boolean cancelled = cancellationService.cancelBooking(booking, numTicketsToCancel);
             if (cancelled) {
-                booking.status = "CANCELLED"; // Update the status locally
+                // Calculate refund amount before updating the booking
+                double refundAmount = (booking.amount / booking.numSeats) * numTicketsToCancel;
+                
+                // Update the booking details
+                booking.numSeats -= numTicketsToCancel;
+                booking.amount -= refundAmount;
+                
+                // Update status
+                if (booking.numSeats == 0) {
+                    booking.status = "CANCELLED";
+                } else {
+                    booking.status = "PARTIALLY CANCELLED";
+                }
+
+                debugBooking(booking, "After cancellation"); // Add debug information
+
                 JOptionPane.showMessageDialog(this, 
-                    "Booking cancelled successfully!\nRefund amount: ₹" + booking.amount);
-                availableSeatsLabel.setText("Available Seats: " + 
-                    reservationService.getAvailableSeats());
+                    "Cancellation successful!\n" +
+                    "Number of tickets cancelled: " + numTicketsToCancel + "\n" +
+                    "Remaining tickets: " + booking.numSeats + "\n" +
+                    "Refund amount: ₹" + String.format("%.2f", refundAmount));
+                    
+                // Update UI
+                updateAvailableSeats();
                 updateBookingHistoryPanel();
             } else {
                 JOptionPane.showMessageDialog(this, 
                     "Cancellation failed", "Error", JOptionPane.ERROR_MESSAGE);
             }
         } catch (Exception e) {
-            e.printStackTrace(); // Add this for debugging
+            e.printStackTrace();
             JOptionPane.showMessageDialog(this, 
                 "Cancellation failed: " + e.getMessage(), 
                 "Error", JOptionPane.ERROR_MESSAGE);
         }
+    }
+
+    // Add this method to track original ticket count
+    private Map<Integer, Integer> originalTicketCounts = new HashMap<>();
+
+    private int getOriginalTicketCount(IIRCTCService.BookingDetails booking) {
+        return originalTicketCounts.getOrDefault(booking.bookingId, booking.numSeats);
+    }
+
+    private void updateAvailableSeats() {
+        try {
+            int seats = reservationService.getAvailableSeats();
+            availableSeatsLabel.setText("Available Seats: " + seats);
+            availableSeatsLabel.setForeground(PRIMARY_COLOR);
+        } catch (Exception e) {
+            availableSeatsLabel.setText("Error fetching seats");
+            availableSeatsLabel.setForeground(Color.RED);
+            System.err.println("Error fetching seats: " + e.getMessage());
+            e.printStackTrace();
+        }
+    }
+
+    private void debugBooking(IIRCTCService.BookingDetails booking, String operation) {
+        System.out.println(operation + " - Booking ID: " + booking.bookingId);
+        System.out.println("Current tickets: " + booking.numSeats);
+        System.out.println("Original tickets: " + getOriginalTicketCount(booking));
+        System.out.println("Status: " + booking.status);
+        System.out.println("Amount: " + booking.amount);
     }
 
     public static void main(String[] args) {

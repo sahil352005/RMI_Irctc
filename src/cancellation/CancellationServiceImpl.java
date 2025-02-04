@@ -43,8 +43,8 @@ public class CancellationServiceImpl extends UnicastRemoteObject implements ICan
     }
 
     @Override
-    public boolean cancelBooking(IIRCTCService.BookingDetails booking) throws RemoteException {
-        System.out.println("CancellationService: Attempting to cancel booking " + booking.bookingId);
+    public boolean cancelBooking(IIRCTCService.BookingDetails booking, int numTicketsToCancel) throws RemoteException {
+        System.out.println("CancellationService: Attempting to cancel " + numTicketsToCancel + " tickets from booking " + booking.bookingId);
         
         if (reservationService == null || paymentService == null) {
             System.out.println("CancellationService: Services not initialized");
@@ -52,17 +52,32 @@ public class CancellationServiceImpl extends UnicastRemoteObject implements ICan
         }
 
         try {
-            if (booking.status.equals("CONFIRMED")) {
+            // Allow cancellation for both CONFIRMED and PARTIALLY CANCELLED tickets
+            if (booking.status.equals("CONFIRMED") || booking.status.equals("PARTIALLY CANCELLED")) {
+                if (numTicketsToCancel <= 0 || numTicketsToCancel > booking.numSeats) {
+                    System.out.println("CancellationService: Invalid number of tickets to cancel");
+                    return false;
+                }
+
                 System.out.println("CancellationService: Processing refund");
-                if (paymentService.processRefund(booking)) {
+                double refundAmount = (booking.amount / booking.numSeats) * numTicketsToCancel;
+                booking.amount = booking.amount - refundAmount;
+                
+                if (paymentService.processRefund(new IIRCTCService.BookingDetails(booking.bookingId, numTicketsToCancel, refundAmount))) {
                     System.out.println("CancellationService: Refund processed, updating seats");
-                    reservationService.updateSeats(booking.numSeats, false);
-                    booking.status = "CANCELLED";
-                    System.out.println("CancellationService: Booking cancelled successfully");
+                    reservationService.updateSeats(numTicketsToCancel, false);
+                    booking.numSeats -= numTicketsToCancel;
+                    
+                    if (booking.numSeats == 0) {
+                        booking.status = "CANCELLED";
+                    } else {
+                        booking.status = "PARTIALLY CANCELLED";
+                    }
+                    System.out.println("CancellationService: Cancellation successful");
                     return true;
                 }
             }
-            System.out.println("CancellationService: Cancellation failed - booking not confirmed or refund failed");
+            System.out.println("CancellationService: Cancellation failed - booking not confirmed/partially cancelled or refund failed");
             return false;
         } catch (Exception e) {
             System.out.println("CancellationService: Error during cancellation - " + e.getMessage());

@@ -6,6 +6,7 @@ import payment.PaymentServiceImpl;
 import cancellation.CancellationServiceImpl;
 import java.rmi.registry.LocateRegistry;
 import java.rmi.registry.Registry;
+import java.rmi.RemoteException;
 
 public class IRCTCServer {
     public static void main(String[] args) {
@@ -15,12 +16,12 @@ public class IRCTCServer {
             try {
                 registry = LocateRegistry.createRegistry(1099);
                 System.out.println("Java RMI registry created.");
-            } catch (Exception e) {
+            } catch (RemoteException e) {
                 System.out.println("Java RMI registry already exists.");
                 registry = LocateRegistry.getRegistry();
             }
 
-            // Create service instances
+            // Create and bind services in the correct order
             ReservationServiceImpl reservationService = new ReservationServiceImpl();
             registry.rebind("ReservationService", reservationService);
             System.out.println("ReservationService bound");
@@ -37,7 +38,13 @@ public class IRCTCServer {
             registry.rebind("CancellationService", cancellationService);
             System.out.println("CancellationService bound");
 
-            System.out.println("IRCTC Server is running...");
+            System.out.println("IRCTC Server is running on port 1099...");
+            
+            // Test services
+            System.out.println("Testing services...");
+            System.out.println("Available seats: " + reservationService.getAvailableSeats());
+            System.out.println("All services are working properly!");
+            
         } catch (Exception e) {
             System.err.println("Server exception: " + e.toString());
             e.printStackTrace();
